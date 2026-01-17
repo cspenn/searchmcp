@@ -7,3 +7,10 @@ search:
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Tor Privacy Settings
+# Enable via SEARCHMCP_USE_TOR=true environment variable
+tor:
+  enabled: false  # Set to true or use SEARCHMCP_USE_TOR env var
+  proxy: "socks5h://127.0.0.1:9050"  # Tor service default (9150 for Tor Browser)
+  timeout: 30  # Seconds (Tor is slower than direct connection)

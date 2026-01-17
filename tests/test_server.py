@@ -5,7 +5,103 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from server import SearchError, do_image_search, do_news_search, do_web_search
+from server import (
+    SearchError,
+    TorConfig,
+    do_image_search,
+    do_news_search,
+    do_web_search,
+)
+
+
+class TestTorConfig:
+    """Tests for Tor configuration."""
+
+    def test_tor_disabled_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that Tor is disabled by default."""
+        monkeypatch.delenv("SEARCHMCP_USE_TOR", raising=False)
+        monkeypatch.delenv("SEARCHMCP_TOR_PROXY", raising=False)
+        monkeypatch.delenv("SEARCHMCP_TOR_TIMEOUT", raising=False)
+        config = TorConfig.from_environment()
+        assert config.enabled is False
+
+    def test_tor_enabled_via_env_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test enabling Tor via environment variable with 'true'."""
+        monkeypatch.setenv("SEARCHMCP_USE_TOR", "true")
+        config = TorConfig.from_environment()
+        assert config.enabled is True
+
+    def test_tor_enabled_via_env_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test enabling Tor via environment variable with '1'."""
+        monkeypatch.setenv("SEARCHMCP_USE_TOR", "1")
+        config = TorConfig.from_environment()
+        assert config.enabled is True
+
+    def test_tor_enabled_via_env_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test enabling Tor via environment variable with 'yes'."""
+        monkeypatch.setenv("SEARCHMCP_USE_TOR", "yes")
+        config = TorConfig.from_environment()
+        assert config.enabled is True
+
+    def test_tor_enabled_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that Tor enable check is case-insensitive."""
+        monkeypatch.setenv("SEARCHMCP_USE_TOR", "TRUE")
+        config = TorConfig.from_environment()
+        assert config.enabled is True
+
+    def test_default_proxy_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test default Tor proxy URL."""
+        monkeypatch.delenv("SEARCHMCP_TOR_PROXY", raising=False)
+        config = TorConfig.from_environment()
+        assert config.proxy == "socks5h://127.0.0.1:9050"
+
+    def test_custom_tor_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test custom Tor proxy URL (e.g., Tor Browser port)."""
+        monkeypatch.setenv("SEARCHMCP_TOR_PROXY", "socks5h://127.0.0.1:9150")
+        config = TorConfig.from_environment()
+        assert config.proxy == "socks5h://127.0.0.1:9150"
+
+    def test_default_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test default timeout value."""
+        monkeypatch.delenv("SEARCHMCP_TOR_TIMEOUT", raising=False)
+        config = TorConfig.from_environment()
+        assert config.timeout == 30
+
+    def test_custom_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test custom timeout value."""
+        monkeypatch.setenv("SEARCHMCP_TOR_TIMEOUT", "60")
+        config = TorConfig.from_environment()
+        assert config.timeout == 60
+
+
+class TestDdgsClientFactory:
+    """Tests for the DDGS client factory function."""
+
+    def test_ddgs_client_without_tor(self) -> None:
+        """Test that DDGS client is created without proxy when Tor is disabled."""
+        with patch("server._tor_config") as mock_config:
+            mock_config.enabled = False
+            with patch("server.DDGS") as mock_ddgs:
+                from server import _get_ddgs_client
+
+                _get_ddgs_client()
+                mock_ddgs.assert_called_once_with()
+
+    def test_ddgs_client_with_tor(self) -> None:
+        """Test that DDGS client is created with proxy when Tor is enabled."""
+        with patch("server._tor_config") as mock_config:
+            mock_config.enabled = True
+            mock_config.proxy = "socks5h://127.0.0.1:9050"
+            mock_config.timeout = 30
+            with patch("server.DDGS") as mock_ddgs:
+                from server import _get_ddgs_client
+
+                _get_ddgs_client()
+                mock_ddgs.assert_called_once_with(
+                    proxy="socks5h://127.0.0.1:9050", timeout=30
+                )
 
 
 class TestValidation:

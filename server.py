@@ -2,6 +2,8 @@
 """Web Search MCP Server using FastMCP and DuckDuckGo."""
 
 import logging
+import os
+from dataclasses import dataclass
 from typing import Any
 
 from ddgs import DDGS  # type: ignore[import-not-found]
@@ -21,7 +23,61 @@ class SearchError(Exception):
     pass
 
 
+@dataclass
+class TorConfig:
+    """Tor proxy configuration for privacy-enhanced searches."""
+
+    enabled: bool
+    proxy: str
+    timeout: int
+
+    @classmethod
+    def from_environment(cls) -> "TorConfig":
+        """Load Tor configuration from environment variables.
+
+        Environment Variables:
+            SEARCHMCP_USE_TOR: Enable Tor routing (true/false/1/0/yes/no)
+            SEARCHMCP_TOR_PROXY: Tor SOCKS proxy URL (default: socks5h://127.0.0.1:9050)
+            SEARCHMCP_TOR_TIMEOUT: Request timeout in seconds (default: 30)
+
+        Returns:
+            TorConfig instance with settings from environment.
+        """
+        enabled = os.getenv("SEARCHMCP_USE_TOR", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        proxy = os.getenv("SEARCHMCP_TOR_PROXY", "socks5h://127.0.0.1:9050")
+        timeout = int(os.getenv("SEARCHMCP_TOR_TIMEOUT", "30"))
+        return cls(enabled=enabled, proxy=proxy, timeout=timeout)
+
+
+# Module-level configuration (loaded once at startup)
+_tor_config = TorConfig.from_environment()
+
+# Log Tor status at module load
+if _tor_config.enabled:
+    logger.info(
+        "Tor privacy mode ENABLED - all searches will route through %s",
+        _tor_config.proxy,
+    )
+else:
+    logger.info("Tor privacy mode disabled - searches will use direct connection")
+
+
 mcp = FastMCP("Web Search")
+
+
+def _get_ddgs_client() -> DDGS:
+    """Create a DDGS client with optional Tor proxy.
+
+    Returns:
+        DDGS client configured based on Tor settings.
+    """
+    if _tor_config.enabled:
+        return DDGS(proxy=_tor_config.proxy, timeout=_tor_config.timeout)
+    return DDGS()
 
 
 def _validate_search_params(
@@ -71,7 +127,8 @@ def do_web_search(
     _validate_search_params(query, max_results, safe_search)
     try:
         logger.info("Web search: %s", query)
-        results = DDGS().text(
+        client = _get_ddgs_client()
+        results = client.text(
             query, max_results=max_results, region=region, safesearch=safe_search
         )
         logger.info("Web search returned %d results", len(results))
@@ -107,7 +164,8 @@ def do_image_search(
     _validate_search_params(query, max_results, safe_search)
     try:
         logger.info("Image search: %s", query)
-        results = DDGS().images(
+        client = _get_ddgs_client()
+        results = client.images(
             query, max_results=max_results, region=region, safesearch=safe_search
         )
         logger.info("Image search returned %d results", len(results))
@@ -141,7 +199,8 @@ def do_news_search(
     _validate_search_params(query, max_results)
     try:
         logger.info("News search: %s", query)
-        results = DDGS().news(query, max_results=max_results, region=region)
+        client = _get_ddgs_client()
+        results = client.news(query, max_results=max_results, region=region)
         logger.info("News search returned %d results", len(results))
         return results
     except ValueError:

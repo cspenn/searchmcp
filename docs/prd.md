@@ -61,6 +61,69 @@ Search for news articles using DuckDuckGo's news search.
 |---------|---------|---------|
 | fastmcp | >=2.0.0 | MCP server framework |
 | ddgs | >=7.0.0 | DuckDuckGo search library |
+| pysocks | >=1.7.1 | SOCKS proxy support for Tor |
+
+## Tor Privacy Feature
+
+### Overview
+
+Optional Tor routing for enhanced privacy. When enabled, all searches in a session are routed through the Tor network, hiding the user's IP address from DuckDuckGo.
+
+### Configuration
+
+Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEARCHMCP_USE_TOR` | `false` | Enable Tor routing (`true`/`false`/`1`/`0`/`yes`/`no`) |
+| `SEARCHMCP_TOR_PROXY` | `socks5h://127.0.0.1:9050` | Tor SOCKS proxy URL |
+| `SEARCHMCP_TOR_TIMEOUT` | `30` | Request timeout in seconds |
+
+### Prerequisites
+
+Tor must be running locally:
+- **Tor service**: Port 9050 (install via `brew install tor && tor`)
+- **Tor Browser**: Port 9150 (when Tor Browser is running)
+
+### Usage Examples
+
+```bash
+# Enable Tor with default settings (Tor service on port 9050)
+SEARCHMCP_USE_TOR=true python server.py
+
+# Enable Tor with Tor Browser (port 9150)
+SEARCHMCP_USE_TOR=true SEARCHMCP_TOR_PROXY=socks5h://127.0.0.1:9150 python server.py
+```
+
+### MCP Client Configuration with Tor
+
+```json
+{
+  "mcpServers": {
+    "searchmcp-tor": {
+      "command": "python",
+      "args": ["/path/to/searchmcp/server.py"],
+      "env": {
+        "SEARCHMCP_USE_TOR": "true"
+      }
+    }
+  }
+}
+```
+
+### Privacy Notes
+
+- Uses `socks5h://` protocol to ensure DNS queries also go through Tor
+- All search types (web, image, news) use Tor when enabled
+- Setting applies to entire session, not individual queries
+- Longer timeout (30s default) accommodates Tor network latency
+
+### Rate Limiting Considerations
+
+Tor exit nodes may be rate-limited by DuckDuckGo. If experiencing issues:
+- Increase timeout via `SEARCHMCP_TOR_TIMEOUT`
+- Restart Tor to get a new circuit/exit node
+- Consider using Tor Browser which handles circuit rotation
 
 ## Non-Functional Requirements
 

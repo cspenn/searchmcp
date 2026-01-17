@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=2.0.0",
     "ddgs>=7.0.0",
+    "pysocks>=1.7.1",  # SOCKS proxy support for Tor
 ]
 
 [tool.uv]
