@@ -1,0 +1,9 @@
+# Search MCP Server Configuration
+search:
+  default_max_results: 10
+  default_region: "wt-wt"
+  default_safe_search: "moderate"
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
