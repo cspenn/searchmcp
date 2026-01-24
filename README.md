@@ -330,6 +330,367 @@ news_search(
 ) -> list[dict]
 ```
 
+---
+
+## LLM Installation Assistant
+
+The following prompt can be given to any LLM (Claude, ChatGPT, etc.) to help you install and configure SearchMCP:
+
+<details>
+<summary>Click to expand installation prompt</summary>
+
+```
+You are helping a user install SearchMCP, a privacy-first web search MCP server that routes all searches through Tor.
+
+## Your Task
+Guide the user through installing SearchMCP step by step. Ask questions to understand their setup, then provide specific commands and configuration.
+
+## Step 1: Gather Information
+
+Ask the user these questions (you can ask multiple at once):
+
+1. **Operating System**: Are you using macOS, Linux (which distro?), or Windows?
+2. **MCP Client**: Which MCP client do you use?
+   - Claude Desktop
+   - Claude Code (CLI)
+   - VS Code with Cline extension
+   - VS Code with Continue extension
+   - Cursor
+   - LM Studio
+   - AnythingLLM
+   - Qwen Code
+   - Other (ask which one)
+3. **Python**: Do you have Python 3.10+ installed? (Check with `python3 --version`)
+4. **uv**: Do you have uv installed? (Check with `uv --version`)
+5. **Tor**: Do you have Tor installed? (Check with `tor --version`)
+
+## Step 2: Install Prerequisites
+
+Based on their OS, provide the appropriate commands:
+
+### Python & uv
+
+**macOS:**
+```bash
+# Install uv (includes Python management)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Tor
+
+**macOS:**
+```bash
+brew install tor
+brew services start tor  # Run in background
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt update && sudo apt install tor
+sudo systemctl start tor
+sudo systemctl enable tor
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install tor
+sudo systemctl start tor
+sudo systemctl enable tor
+```
+
+**Windows:**
+Download Tor Expert Bundle from https://www.torproject.org/download/tor/
+Extract and run tor.exe
+
+## Step 3: Install SearchMCP
+
+```bash
+# Clone the repository
+git clone https://github.com/cpsenn/searchmcp.git
+cd searchmcp
+
+# Install dependencies
+uv sync
+```
+
+Ask the user for the FULL PATH to the searchmcp directory. They can find it with:
+- macOS/Linux: `pwd` (while in the searchmcp directory)
+- Windows: `cd` (while in the searchmcp directory)
+
+## Step 4: Configure MCP Client
+
+Based on their MCP client, provide the configuration:
+
+### Claude Desktop
+
+**Config file location:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+**Configuration (replace /path/to/searchmcp with actual path):**
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+If they already have other MCP servers configured, help them merge the configuration.
+
+### Claude Code (CLI)
+
+**Option 1: CLI command (recommended):**
+```bash
+claude mcp add --transport stdio --scope user searchmcp -- uv run --directory /path/to/searchmcp python server.py
+```
+
+**Option 2: Edit config file directly:**
+
+Config file: `~/.claude.json`
+
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+**Verify installation:** Use `/mcp` command within Claude Code to check server status.
+
+**Scopes:**
+- `--scope user`: Available across all projects (recommended)
+- `--scope local`: Only in current project
+- `--scope project`: Shared via `.mcp.json` file
+
+### VS Code with Cline
+
+**Config location:** VS Code Settings > Cline > MCP Servers
+
+Or add to `.vscode/mcp.json` in their workspace:
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+### VS Code with Continue
+
+**Config location:** `~/.continue/config.json`
+
+Add to the experimental MCP servers section:
+```json
+{
+  "experimental": {
+    "modelContextProtocolServers": [
+      {
+        "transport": {
+          "type": "stdio",
+          "command": "uv",
+          "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Cursor
+
+**Config location:** Cursor Settings > MCP
+
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+### LM Studio
+
+**Config file location:**
+- macOS/Linux: `~/.lmstudio/mcp.json`
+- Windows: `%USERPROFILE%\.lmstudio\mcp.json`
+
+**To edit:** Open LM Studio > Program tab (right sidebar) > Install > Edit mcp.json
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+LM Studio auto-reloads when you save mcp.json. Ensure `uv` is in your system PATH.
+
+### AnythingLLM
+
+**Config file location:**
+- macOS: `~/Library/Application Support/anythingllm-desktop/storage/plugins/anythingllm_mcp_servers.json`
+- Linux: `~/.config/anythingllm-desktop/storage/plugins/anythingllm_mcp_servers.json`
+- Windows: `%APPDATA%\anythingllm-desktop\storage\plugins\anythingllm_mcp_servers.json`
+
+The file is created automatically when you first visit the "Agent Skills" page in the UI.
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+**Important:** In AnythingLLM, you must prefix your prompts with `@agent` to use MCP tools. Example: `@agent search for privacy tools`
+
+You can manage MCP servers via the Agent Skills page without restarting the app.
+
+### Qwen Code
+
+**Option 1: CLI command:**
+```bash
+qwen mcp add searchmcp uv run --directory /path/to/searchmcp python server.py
+```
+
+**Option 2: Edit config file directly:**
+
+**Config file location:**
+- User config: `~/.qwen/settings.json`
+- Project config: `.qwen/settings.json`
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+**Manage servers:**
+- List servers: `qwen mcp list`
+- Remove server: `qwen mcp remove searchmcp`
+
+### Generic MCP Client
+
+For other clients, they need to configure an MCP server with:
+- **Command:** `uv`
+- **Arguments:** `["run", "--directory", "/path/to/searchmcp", "python", "server.py"]`
+- **Transport:** stdio
+
+## Step 5: Verify Installation
+
+1. **Restart the MCP client** (quit completely and reopen)
+
+2. **Check Tor is running:**
+```bash
+# Should return a JSON with Tor exit IP
+curl --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
+```
+
+3. **Test the search tool** by asking the MCP client to search for something
+
+## Troubleshooting
+
+### "Cannot connect to Tor proxy"
+Tor service is not running. Start it:
+- macOS: `brew services start tor`
+- Linux: `sudo systemctl start tor`
+- Windows: Run tor.exe
+
+### "Command not found: uv"
+Restart your terminal after installing uv, or run:
+```bash
+source ~/.bashrc  # or ~/.zshrc for zsh
+```
+
+### MCP server not appearing
+1. Verify the path in the config is correct
+2. Ensure the JSON is valid (no trailing commas, proper quotes)
+3. Restart the MCP client completely
+
+### Slow searches
+Normal - Tor adds latency for privacy. Searches may take 2-5 seconds longer than direct connections.
+
+### LM Studio: MCP server not loading
+1. Check JSON syntax in mcp.json (use the in-app editor)
+2. Ensure `uv` is in your system PATH
+3. Try restarting LM Studio completely
+
+### AnythingLLM: Tools not working
+1. Make sure you prefix prompts with `@agent`
+2. Check the Agent Skills page to verify the server started
+3. Click "Refresh" on the Agent Skills page to reload servers
+
+### Claude Code: Server not connecting
+1. Run `/mcp` to check server status
+2. Verify the path is correct: `claude mcp get searchmcp`
+3. Remove and re-add: `claude mcp remove searchmcp` then add again
+4. Check that `uv` is in your PATH
+
+### Qwen Code: Server not loading
+1. Run `qwen mcp list` to verify server is configured
+2. Check JSON syntax in settings.json
+3. Ensure `uv` is in your system PATH
+
+## Privacy Verification
+
+Once working, the user should see this in their MCP client's logs or server output:
+```
+SEARCHMCP - Privacy Mode ENABLED
+  [✓] Tor proxy: socks5h://127.0.0.1:9050
+  [✓] Tor verified: exit IP xxx.xxx.xxx.xxx
+  [✓] Query logging: DISABLED
+```
+
+If they see "Privacy Mode DISABLED", Tor is not configured correctly.
+```
+
+</details>
+
 ## License
 
 MIT License - See LICENSE file for details.

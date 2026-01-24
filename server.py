@@ -6,6 +6,7 @@ import logging
 import os
 import socket
 import sys
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -120,15 +121,13 @@ def check_privileges() -> None:
             )
     else:
         # Windows admin check
-        try:
+        with suppress(AttributeError, OSError):
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
                 logger.warning(
                     "Running as Administrator is discouraged for security reasons"
                 )
-        except (AttributeError, OSError):
-            pass
 
 
 def print_privacy_status(proxy: str, exit_ip: str) -> None:
