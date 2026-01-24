@@ -7,10 +7,20 @@ search:
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # Query content is NOT logged by default for privacy
+  # Use --with-logging CLI flag to enable query logging
 
-# Tor Privacy Settings
-# Enable via SEARCHMCP_USE_TOR=true environment variable
+# Tor Privacy Settings (Privacy-by-Default)
+# Tor is ENABLED by default. Disable with SEARCHMCP_USE_TOR=false or --disable-privacy flag.
 tor:
-  enabled: false  # Set to true or use SEARCHMCP_USE_TOR env var
+  enabled: true  # Privacy-first: Tor routing is ON by default
   proxy: "socks5h://127.0.0.1:9050"  # Tor service default (9150 for Tor Browser)
   timeout: 30  # Seconds (Tor is slower than direct connection)
+
+# Privacy Recommendations
+# For maximum protection, also use:
+#   - VPN (layered with Tor for defense in depth)
+#   - Privacy-focused browser (Tor Browser, Brave, LibreWolf)
+#   - Encrypted email (ProtonMail, Tutanota)
+#   - Encrypted messaging (Signal, Session)
+#   - Privacy DNS (Quad9, Mullvad DNS)

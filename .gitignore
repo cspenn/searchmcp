@@ -31,22 +31,32 @@ ENV/
 *.swp
 *.swo
 
-# Testing
+# Testing & Quality
 .coverage
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 htmlcov/
 
 # macOS
 .DS_Store
 
-# Project-specific
-credentials.yml
-logs/
-output/
+# Runtime folders
 data/
+input/
+output/
+logs/
 
-# Serena/MCP
-.serena/
+# Development files
+docs/
+tests/
+src/
+checkpython.sh
+.pre-commit-config.yaml
 
-# Claude
+# Credentials (never commit)
+credentials.yml
+
+# Tool workspaces (dotfiles)
 .claude/
+.serena/

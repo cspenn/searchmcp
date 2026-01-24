@@ -1782,6 +1782,7 @@ dependencies = [
     { name = "ddgs" },
     { name = "fastmcp" },
     { name = "pysocks" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -1795,6 +1796,7 @@ requires-dist = [
     { name = "ddgs", specifier = ">=7.0.0" },
     { name = "fastmcp", specifier = ">=2.0.0" },
     { name = "pysocks", specifier = ">=1.7.1" },
+    { name = "requests", specifier = ">=2.28.0" },
 ]
 
 [package.metadata.requires-dev]

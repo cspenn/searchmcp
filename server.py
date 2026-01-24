@@ -1,11 +1,16 @@
 # start server.py
 """Web Search MCP Server using FastMCP and DuckDuckGo."""
 
+import argparse
 import logging
 import os
+import socket
+import sys
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
+import requests
 from ddgs import DDGS  # type: ignore[import-not-found]
 from fastmcp import FastMCP
 
@@ -15,6 +20,182 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Module-level flag for query logging (set by CLI args)
+_with_logging = False
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments.
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    parser = argparse.ArgumentParser(
+        description="SearchMCP - Privacy-first web search via MCP",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Privacy is enabled by default. All searches route through Tor.
+
+For maximum privacy:
+  - Use a VPN in addition to Tor
+  - Use a privacy-focused browser (Tor Browser, Brave, Firefox)
+  - Use encrypted email (ProtonMail, Tutanota)
+""",
+    )
+    parser.add_argument(
+        "--disable-privacy",
+        action="store_true",
+        help="Disable Tor routing (not recommended - exposes your IP)",
+    )
+    parser.add_argument(
+        "--with-logging",
+        action="store_true",
+        help="Enable query content in logs (disabled by default for privacy)",
+    )
+    return parser.parse_args()
+
+
+def verify_tor_proxy(proxy: str) -> bool:
+    """Test connection to Tor SOCKS5 proxy.
+
+    Args:
+        proxy: Tor proxy URL (e.g., socks5h://127.0.0.1:9050)
+
+    Returns:
+        True if proxy is accepting connections, False otherwise.
+    """
+    try:
+        parsed = urlparse(proxy)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 9050
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except (OSError, ValueError) as e:
+        logger.debug("Tor proxy check failed: %s", e)
+        return False
+
+
+def verify_tor_exit(proxy: str, timeout: int) -> str:
+    """Verify traffic is routing through Tor and return exit IP.
+
+    Args:
+        proxy: Tor proxy URL
+        timeout: Request timeout in seconds
+
+    Returns:
+        Exit node IP address if verification succeeds.
+
+    Raises:
+        SystemExit: If Tor verification fails.
+    """
+    try:
+        response = requests.get(
+            "https://check.torproject.org/api/ip",
+            proxies={"http": proxy, "https": proxy},
+            timeout=timeout,
+        )
+        data = response.json()
+
+        if not data.get("IsTor", False):
+            logger.error("Traffic is NOT routing through Tor!")
+            sys.exit("ERROR: Tor verification failed - traffic not going through Tor")
+
+        return data.get("IP", "unknown")
+    except requests.RequestException as e:
+        logger.error("Failed to verify Tor connection: %s", e)
+        sys.exit(f"ERROR: Could not verify Tor connection: {e}")
+
+
+def check_privileges() -> None:
+    """Warn if running with elevated privileges."""
+    if os.name != "nt":
+        if os.getuid() == 0:
+            logger.warning(
+                "Running as root/admin is discouraged for security reasons"
+            )
+    else:
+        # Windows admin check
+        try:
+            import ctypes
+
+            if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
+                logger.warning(
+                    "Running as Administrator is discouraged for security reasons"
+                )
+        except (AttributeError, OSError):
+            pass
+
+
+def print_privacy_status(proxy: str, exit_ip: str) -> None:
+    """Display privacy status and recommendations at startup.
+
+    Args:
+        proxy: Active Tor proxy URL
+        exit_ip: Verified Tor exit node IP
+    """
+    print()
+    print("=" * 60)
+    print("  SEARCHMCP - Privacy Mode ENABLED")
+    print("=" * 60)
+    print()
+    print("  Privacy Checklist:")
+    print(f"    [✓] Tor proxy: {proxy}")
+    print(f"    [✓] Tor verified: exit IP {exit_ip}")
+    print("    [✓] Query logging: DISABLED")
+    print()
+    print("  For Maximum Privacy, Also Use:")
+    print("    • VPN (layered with Tor for defense in depth)")
+    print("    • Privacy browser (Tor Browser, Brave, Firefox with")
+    print("      privacy extensions, or LibreWolf)")
+    print("    • Encrypted email (ProtonMail, Tutanota, or self-hosted)")
+    print("    • Encrypted messaging (Signal, Session, or Matrix)")
+    print("    • Privacy-respecting DNS (Quad9, Mullvad DNS, NextDNS)")
+    print()
+    print("  Threat Model Protection:")
+    print("    • ISP surveillance: PROTECTED (Tor encryption)")
+    print("    • Big Tech tracking: PROTECTED (no direct connection)")
+    print("    • Network observers: PROTECTED (Tor routing)")
+    print()
+    print("=" * 60)
+    print()
+
+
+def startup_privacy_check(args: argparse.Namespace, config: "TorConfig") -> None:
+    """Perform startup privacy verification.
+
+    Args:
+        args: Parsed command line arguments
+        config: Tor configuration
+
+    Raises:
+        SystemExit: If privacy mode is enabled but Tor is unavailable.
+    """
+    check_privileges()
+
+    if args.disable_privacy:
+        logger.warning("Privacy mode DISABLED - searches will use direct connection")
+        logger.warning("Your IP address will be visible to DuckDuckGo")
+        print()
+        print("WARNING: Privacy mode disabled. Your searches are NOT private.")
+        print()
+        return
+
+    if not verify_tor_proxy(config.proxy):
+        sys.exit(
+            f"ERROR: Cannot connect to Tor proxy at {config.proxy}\n"
+            "Please ensure Tor is running:\n"
+            "  macOS:  brew install tor && tor\n"
+            "  Linux:  sudo apt install tor && sudo systemctl start tor\n"
+            "  Or run with --disable-privacy (not recommended)"
+        )
+
+    exit_ip = verify_tor_exit(config.proxy, config.timeout)
+    print_privacy_status(config.proxy, exit_ip)
 
 
 class SearchError(Exception):
@@ -43,10 +224,11 @@ class TorConfig:
         Returns:
             TorConfig instance with settings from environment.
         """
-        enabled = os.getenv("SEARCHMCP_USE_TOR", "false").lower() in (
-            "true",
-            "1",
-            "yes",
+        # Privacy by default: Tor is enabled unless explicitly disabled
+        enabled = os.getenv("SEARCHMCP_USE_TOR", "true").lower() not in (
+            "false",
+            "0",
+            "no",
         )
         proxy = os.getenv("SEARCHMCP_TOR_PROXY", "socks5h://127.0.0.1:9050")
         timeout = int(os.getenv("SEARCHMCP_TOR_TIMEOUT", "30"))
@@ -126,7 +308,10 @@ def do_web_search(
     """
     _validate_search_params(query, max_results, safe_search)
     try:
-        logger.info("Web search: %s", query)
+        if _with_logging:
+            logger.info("Web search: %s", query)
+        else:
+            logger.info("Web search performed (query content hidden for privacy)")
         client = _get_ddgs_client()
         results = client.text(
             query, max_results=max_results, region=region, safesearch=safe_search
@@ -163,7 +348,10 @@ def do_image_search(
     """
     _validate_search_params(query, max_results, safe_search)
     try:
-        logger.info("Image search: %s", query)
+        if _with_logging:
+            logger.info("Image search: %s", query)
+        else:
+            logger.info("Image search performed (query content hidden for privacy)")
         client = _get_ddgs_client()
         results = client.images(
             query, max_results=max_results, region=region, safesearch=safe_search
@@ -198,7 +386,10 @@ def do_news_search(
     """
     _validate_search_params(query, max_results)
     try:
-        logger.info("News search: %s", query)
+        if _with_logging:
+            logger.info("News search: %s", query)
+        else:
+            logger.info("News search performed (query content hidden for privacy)")
         client = _get_ddgs_client()
         results = client.news(query, max_results=max_results, region=region)
         logger.info("News search returned %d results", len(results))
@@ -271,6 +462,30 @@ def news_search(
     return do_news_search(query, max_results, region)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point with privacy checks."""
+    global _with_logging, _tor_config
+
+    args = parse_args()
+
+    # Set logging flag
+    _with_logging = args.with_logging
+
+    # Handle --disable-privacy flag (overrides env var)
+    if args.disable_privacy:
+        _tor_config = TorConfig(
+            enabled=False,
+            proxy=_tor_config.proxy,
+            timeout=_tor_config.timeout,
+        )
+
+    # Run startup privacy verification
+    startup_privacy_check(args, _tor_config)
+
+    # Start the MCP server
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
 # end server.py

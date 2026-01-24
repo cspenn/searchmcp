@@ -7,10 +7,16 @@ dependencies = [
     "fastmcp>=2.0.0",
     "ddgs>=7.0.0",
     "pysocks>=1.7.1",  # SOCKS proxy support for Tor
+    "requests>=2.28.0",  # HTTP client for Tor verification
 ]
 
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (require Tor service)",
 ]
