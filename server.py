@@ -200,8 +200,6 @@ def startup_privacy_check(args: argparse.Namespace, config: "TorConfig") -> None
 class SearchError(Exception):
     """Raised when a search operation fails."""
 
-    pass
-
 
 @dataclass
 class TorConfig:

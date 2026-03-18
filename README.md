@@ -243,6 +243,61 @@ Your DNS queries reveal every site you visit. Use encrypted DNS:
 
 **Avoid:** Google, Bing, Yahoo (track everything)
 
+## Development
+
+### Hot Reload with MCP Inspector
+
+FastMCP v3 provides a development server with hot reload and an interactive inspector:
+
+```bash
+uv run fastmcp dev server.py
+```
+
+This opens a browser-based MCP Inspector where you can:
+- Test tools interactively
+- View tool schemas
+- Debug request/response payloads
+
+### Production Run
+
+For production deployment:
+
+```bash
+uv run fastmcp run server.py
+```
+
+Or run directly:
+
+```bash
+uv run python server.py
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Run with coverage
+uv run pytest tests/ -v --cov=server --cov-report=term-missing
+
+# Run only unit tests (skip integration tests requiring Tor)
+uv run pytest tests/ -v -m "not integration"
+```
+
+### Code Quality
+
+```bash
+# Type checking
+uv run mypy server.py
+
+# Linting
+uv run ruff check server.py
+
+# Format code
+uv run ruff format server.py
+```
+
 ## Troubleshooting
 
 ### "Cannot connect to Tor proxy"

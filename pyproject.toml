@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Web Search MCP Server using FastMCP and DuckDuckGo"
 requires-python = ">=3.11"
 dependencies = [
-    "fastmcp>=2.0.0",
+    "fastmcp>=3.0.0b1",
     "ddgs>=7.0.0",
     "pysocks>=1.7.1",  # Required: SOCKS proxy support for httpx/requests Tor connections
     "requests>=2.28.0",  # HTTP client for Tor verification
