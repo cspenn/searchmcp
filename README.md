@@ -18,12 +18,15 @@ making it impossible to trace queries back to you.
 
 ## What SearchMCP Does
 
-SearchMCP is an MCP (Model Context Protocol) server that gives AI assistants
-privacy-preserving web search capability. It exposes three tools:
+SearchMCP is both a standalone CLI tool and an MCP (Model Context Protocol)
+server that gives AI assistants privacy-preserving web search capability.
+It exposes five tools:
 
 - **`web_search`** — Full web search via DuckDuckGo
 - **`image_search`** — Image search via DuckDuckGo
 - **`news_search`** — News article search via DuckDuckGo
+- **`videos_search`** — Video search via DuckDuckGo
+- **`books_search`** — Book search via DuckDuckGo
 
 All traffic routes through Tor by default. Query content is never logged.
 Privacy verification runs at startup to confirm your searches are actually
@@ -77,10 +80,20 @@ Connect to VPN first, then start Tor. This hides Tor usage from your ISP.
 
 ## Installation
 
-SearchMCP is packaged as a standard Python package. Install it once with
-[uv](https://docs.astral.sh/uv/) and the `searchmcp` command becomes available
-system-wide — no hard-coded paths required.
+SearchMCP is packaged as a standard Python package that installs a `searchmcp`
+command available system-wide. Use it as a standalone CLI tool or configure it
+as an MCP server for Claude, Cursor, and other MCP clients.
 
+**From PyPI (recommended):**
+```bash
+# With uv (recommended)
+uv add searchmcp
+
+# Or with pip
+pip install searchmcp
+```
+
+**From source with [uv](https://docs.astral.sh/uv/):**
 ```bash
 # Clone the repository
 git clone https://github.com/cspenn/searchmcp.git
@@ -103,9 +116,20 @@ uv pip install -e /path/to/searchmcp
 
 1. **Start Tor** (see Prerequisites above)
 
-2. **Run SearchMCP:**
+2. **Run SearchMCP as an MCP server** (for Claude, Cursor, etc.):
    ```bash
+   searchmcp serve
+   # or simply:
    searchmcp
+   ```
+
+   **Or run a one-off CLI search directly:**
+   ```bash
+   searchmcp web "privacy tools 2025"
+   searchmcp news "AI regulation" --timelimit w --max-results 5
+   searchmcp images "Tor network diagram"
+   searchmcp videos "how to use Tor browser"
+   searchmcp books "digital privacy handbook"
    ```
 
 3. **Verify privacy status** in the startup output:
@@ -139,6 +163,15 @@ uv pip install -e /path/to/searchmcp
 
 ## CLI Reference
 
+SearchMCP provides six subcommands. Running `searchmcp` with no subcommand
+is equivalent to `searchmcp serve`.
+
+### `serve` — Start the MCP server
+
+```
+searchmcp serve [--disable-privacy] [--with-logging]
+```
+
 | Flag | Description |
 |------|-------------|
 | `--disable-privacy` | Disable Tor routing (not recommended) |
@@ -147,13 +180,55 @@ uv pip install -e /path/to/searchmcp
 **Examples:**
 ```bash
 # Default: Maximum privacy
-searchmcp
+searchmcp serve
 
 # Debugging with query logging (use cautiously)
-searchmcp --with-logging
+searchmcp serve --with-logging
 
 # Disable privacy mode (not recommended)
-searchmcp --disable-privacy
+searchmcp serve --disable-privacy
+```
+
+### Search subcommands
+
+All five search subcommands share the same flag surface:
+
+```
+searchmcp web    QUERY [options]
+searchmcp news   QUERY [options]
+searchmcp images QUERY [options]
+searchmcp videos QUERY [options]
+searchmcp books  QUERY [options]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-results N` | 10 | Number of results to return (1-100) |
+| `--region R` | `wt-wt` | Region code (`wt-wt` = worldwide; e.g. `us-en`, `uk-en`) |
+| `--safesearch S` | `moderate` | Safety filter: `off`, `moderate`, or `strict` |
+| `--timelimit T` | (none) | Time window: `d` (day), `w` (week), `m` (month), `y` (year) |
+| `--backend B` | `auto` | Backend engine(s): `auto`, `all`, or a name / comma-separated list |
+| `--page P` | 1 | Result page number (1-100) |
+| `--disable-privacy` | off | Disable Tor routing (not recommended) |
+| `--with-logging` | off | Log query content (use cautiously) |
+| `--json` | off | Output raw JSON instead of a formatted table |
+
+**Examples:**
+```bash
+# Web search — default settings
+searchmcp web "open source privacy tools"
+
+# News from the past week, JSON output
+searchmcp news "AI regulation" --timelimit w --max-results 20 --json
+
+# UK image search with strict safe-search
+searchmcp images "data center" --region uk-en --safesearch strict
+
+# Video search, second page of results
+searchmcp videos "Tor browser tutorial" --page 2
+
+# Book search with JSON output
+searchmcp books "surveillance capitalism" --json
 ```
 
 ## Configuration
@@ -366,36 +441,139 @@ curl --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
 
 ## API Reference
 
-SearchMCP exposes three MCP tools:
+### MCP Tools
 
-### `web_search`
+SearchMCP exposes five MCP tools. All tools accept the same parameter set.
+
+#### Common parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | `str` | (required) | Search query |
+| `max_results` | `int` | `10` | Number of results (1-100) |
+| `region` | `str` | `"wt-wt"` | Region code (`wt-wt` = worldwide) |
+| `safe_search` | `str` | `"moderate"` | Safety filter: `off`, `moderate`, or `strict` |
+| `timelimit` | `str \| None` | `None` | Time window: `d`, `w`, `m`, or `y` |
+| `backend` | `str` | `"auto"` | Backend engine(s): `auto`, `all`, or a name |
+| `page` | `int` | `1` | Result page (1-100) |
+
+#### `web_search`
 ```python
 web_search(
-    query: str,              # Search query (required)
-    max_results: int = 10,   # 1-100 results
-    region: str = "wt-wt",  # Region code
-    safe_search: str = "moderate"  # off/moderate/strict
+    query: str,
+    max_results: int = 10,
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict]
+# Returns: title, href, body
 ```
 
-### `image_search`
+#### `image_search`
 ```python
 image_search(
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
-    safe_search: str = "moderate"
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict]
+# Returns: title, image, thumbnail, url, height, width, source
 ```
 
-### `news_search`
+#### `news_search`
 ```python
 news_search(
     query: str,
     max_results: int = 10,
-    region: str = "wt-wt"
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict]
+# Returns: title, url, body, date, image, source
 ```
+
+#### `videos_search`
+```python
+videos_search(
+    query: str,
+    max_results: int = 10,
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
+) -> list[dict]
+# Returns: title, content, description, duration, embed_html, embed_url,
+#          image_token, images, provider, published, publisher, statistics, uploader
+```
+
+#### `books_search`
+```python
+books_search(
+    query: str,
+    max_results: int = 10,
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
+) -> list[dict]
+# Returns: title, author, publisher, info, url, thumbnail
+```
+
+### Python Library API
+
+SearchMCP can also be used as a Python library. All five functions accept a
+query string and an optional `SearchParams` object.
+
+```python
+from searchmcp.server import (
+    do_web_search,
+    do_image_search,
+    do_news_search,
+    do_videos_search,
+    do_books_search,
+)
+from searchmcp.params import SearchParams
+
+params = SearchParams(
+    max_results=20,
+    region="us-en",
+    safesearch="moderate",
+    timelimit="w",   # past week
+    backend="auto",
+    page=1,
+)
+
+results = do_web_search("open source privacy tools", params)
+for r in results:
+    print(r["title"], r["href"])
+
+# All functions share the same signature:
+# do_web_search(query: str, params: SearchParams | None = None) -> list[dict]
+# do_image_search(query: str, params: SearchParams | None = None) -> list[dict]
+# do_news_search(query: str, params: SearchParams | None = None) -> list[dict]
+# do_videos_search(query: str, params: SearchParams | None = None) -> list[dict]
+# do_books_search(query: str, params: SearchParams | None = None) -> list[dict]
+```
+
+`SearchParams` fields:
+
+| Field | Type | Default | Constraint |
+|-------|------|---------|------------|
+| `max_results` | `int` | `10` | 1-100 |
+| `region` | `str` | `"wt-wt"` | DuckDuckGo region code |
+| `safesearch` | `str` | `"moderate"` | `off`, `moderate`, or `strict` |
+| `timelimit` | `str \| None` | `None` | `d`, `w`, `m`, or `y` |
+| `backend` | `str` | `"auto"` | `auto`, `all`, or engine name |
+| `page` | `int` | `1` | 1-100 |
 
 ---
 
