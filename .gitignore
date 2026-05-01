@@ -48,8 +48,6 @@ output/
 logs/
 
 # Development files
-docs/
-tests/
 checkpython.sh
 .pre-commit-config.yaml
 

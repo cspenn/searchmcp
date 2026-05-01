@@ -2,38 +2,45 @@
 name = "searchmcp"
 version = "0.1.0"
 description = "Web Search MCP Server using FastMCP and DuckDuckGo"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.0.0b1",
     "ddgs>=7.0.0",
-    "pysocks>=1.7.1",  # Required: SOCKS proxy support for httpx/requests Tor connections
-    "requests>=2.28.0",  # HTTP client for Tor verification
+    "pydantic>=2.0",
+    "httpx[socks]>=0.27",
+    "typer>=0.12",
+    "structlog>=24",
+    "orjson>=3.10",
+    "rich>=13",
+    "stamina>=24",
 ]
 
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-httpx>=0.30",
 ]
 
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests (require Tor service)",
 ]
+addopts = "-m 'not integration'"
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
 
 [tool.mypy]
 mypy_path = "src"
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 include = ["src"]
 extraPaths = ["src"]
 venvPath = "."
 venv = ".venv"
-
-[tool.deptry.per_rule_ignores]
-DEP002 = ["pysocks"]
 
 [build-system]
 requires = ["hatchling"]
