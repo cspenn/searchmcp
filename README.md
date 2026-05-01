@@ -366,7 +366,7 @@ This opens a browser-based MCP Inspector where you can:
 uv run pytest tests/ -v
 
 # Run with coverage
-uv run pytest tests/ -v --cov=src/searchmcp --cov-report=term-missing
+uv run pytest tests/ -v --cov=searchmcp --cov-report=term-missing
 
 # Run only unit tests (skip integration tests requiring Tor)
 uv run pytest tests/ -v -m "not integration"
@@ -376,13 +376,13 @@ uv run pytest tests/ -v -m "not integration"
 
 ```bash
 # Type checking
-uv run mypy src/
+uv run pyright src/
 
 # Linting
-uv run ruff check src/
+uv run ruff check src/ tests/
 
 # Format code
-uv run ruff format src/
+uv run ruff format src/ tests/
 ```
 
 ## Troubleshooting
