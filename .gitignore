@@ -50,7 +50,6 @@ logs/
 # Development files
 docs/
 tests/
-src/
 checkpython.sh
 .pre-commit-config.yaml
 
@@ -60,3 +59,7 @@ credentials.yml
 # Tool workspaces (dotfiles)
 .claude/
 .serena/
+
+# Graphify knowledge graph output
+graphify-out/
+.checkpoints/

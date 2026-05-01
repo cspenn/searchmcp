@@ -16,6 +16,19 @@ views, and more. This data is collected by:
 SearchMCP protects you by routing all searches through the Tor network,
 making it impossible to trace queries back to you.
 
+## What SearchMCP Does
+
+SearchMCP is an MCP (Model Context Protocol) server that gives AI assistants
+privacy-preserving web search capability. It exposes three tools:
+
+- **`web_search`** — Full web search via DuckDuckGo
+- **`image_search`** — Image search via DuckDuckGo
+- **`news_search`** — News article search via DuckDuckGo
+
+All traffic routes through Tor by default. Query content is never logged.
+Privacy verification runs at startup to confirm your searches are actually
+going through Tor before the server accepts any requests.
+
 ## Prerequisites
 
 ### 1. Tor Service (Required)
@@ -49,7 +62,7 @@ Download and run the Tor Expert Bundle from https://www.torproject.org/download/
 
 If you have Tor Browser installed, it provides a Tor proxy on port 9150:
 ```bash
-SEARCHMCP_TOR_PROXY=socks5h://127.0.0.1:9150 python server.py
+SEARCHMCP_TOR_PROXY=socks5h://127.0.0.1:9150 searchmcp
 ```
 
 ### 2. VPN (Recommended)
@@ -64,16 +77,26 @@ Connect to VPN first, then start Tor. This hides Tor usage from your ISP.
 
 ## Installation
 
+SearchMCP is packaged as a standard Python package. Install it once with
+[uv](https://docs.astral.sh/uv/) and the `searchmcp` command becomes available
+system-wide — no hard-coded paths required.
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/searchmcp.git
+git clone https://github.com/cspenn/searchmcp.git
 cd searchmcp
 
-# Install dependencies with uv
-uv sync
+# Install as a tool (adds `searchmcp` to your PATH)
+uv tool install .
+```
 
-# Or with pip
-pip install -e .
+**Alternative: editable install in a project venv**
+
+If the consuming project has its own virtualenv and you want changes in the
+checkout reflected immediately:
+
+```bash
+uv pip install -e /path/to/searchmcp
 ```
 
 ## Quick Start
@@ -82,7 +105,7 @@ pip install -e .
 
 2. **Run SearchMCP:**
    ```bash
-   python server.py
+   searchmcp
    ```
 
 3. **Verify privacy status** in the startup output:
@@ -124,13 +147,13 @@ pip install -e .
 **Examples:**
 ```bash
 # Default: Maximum privacy
-python server.py
+searchmcp
 
 # Debugging with query logging (use cautiously)
-python server.py --with-logging
+searchmcp --with-logging
 
 # Disable privacy mode (not recommended)
-python server.py --disable-privacy
+searchmcp --disable-privacy
 ```
 
 ## Configuration
@@ -146,26 +169,29 @@ Environment variables for advanced users:
 **Example:**
 ```bash
 # Use Tor Browser's proxy
-SEARCHMCP_TOR_PROXY=socks5h://127.0.0.1:9150 python server.py
+SEARCHMCP_TOR_PROXY=socks5h://127.0.0.1:9150 searchmcp
 
 # Increase timeout for slow connections
-SEARCHMCP_TOR_TIMEOUT=60 python server.py
+SEARCHMCP_TOR_TIMEOUT=60 searchmcp
 ```
 
 ## MCP Client Configuration
 
-Add to your MCP client configuration (e.g., Claude Desktop):
+Because `searchmcp` is installed as a console script on your PATH, the
+configuration is the same for every MCP client — no path hard-coding needed.
 
 ```json
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "python",
-      "args": ["/path/to/searchmcp/server.py"]
+      "command": "searchmcp"
     }
   }
 }
 ```
+
+See the **LLM Installation Assistant** section below for client-specific
+instructions (Claude Desktop, Claude Code, Cursor, VS Code, LM Studio, etc.).
 
 ## Comprehensive Privacy Setup
 
@@ -258,20 +284,6 @@ This opens a browser-based MCP Inspector where you can:
 - View tool schemas
 - Debug request/response payloads
 
-### Production Run
-
-For production deployment:
-
-```bash
-uv run fastmcp run server.py
-```
-
-Or run directly:
-
-```bash
-uv run python server.py
-```
-
 ### Running Tests
 
 ```bash
@@ -279,7 +291,7 @@ uv run python server.py
 uv run pytest tests/ -v
 
 # Run with coverage
-uv run pytest tests/ -v --cov=server --cov-report=term-missing
+uv run pytest tests/ -v --cov=src/searchmcp --cov-report=term-missing
 
 # Run only unit tests (skip integration tests requiring Tor)
 uv run pytest tests/ -v -m "not integration"
@@ -289,13 +301,13 @@ uv run pytest tests/ -v -m "not integration"
 
 ```bash
 # Type checking
-uv run mypy server.py
+uv run mypy src/
 
 # Linting
-uv run ruff check server.py
+uv run ruff check src/
 
 # Format code
-uv run ruff format server.py
+uv run ruff format src/
 ```
 
 ## Troubleshooting
@@ -330,7 +342,7 @@ curl --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
 **Cause:** Normal. Tor adds latency for privacy.
 
 **Solutions:**
-- Increase timeout: `SEARCHMCP_TOR_TIMEOUT=60 python server.py`
+- Increase timeout: `SEARCHMCP_TOR_TIMEOUT=60 searchmcp`
 - Tor is typically 2-5x slower than direct connections
 - Consider this the cost of privacy
 
@@ -359,8 +371,8 @@ SearchMCP exposes three MCP tools:
 ### `web_search`
 ```python
 web_search(
-    query: str,           # Search query (required)
-    max_results: int = 10,  # 1-100 results
+    query: str,              # Search query (required)
+    max_results: int = 10,   # 1-100 results
     region: str = "wt-wt",  # Region code
     safe_search: str = "moderate"  # off/moderate/strict
 ) -> list[dict]
@@ -415,28 +427,16 @@ Ask the user these questions (you can ask multiple at once):
    - AnythingLLM
    - Qwen Code
    - Other (ask which one)
-3. **Python**: Do you have Python 3.10+ installed? (Check with `python3 --version`)
-4. **uv**: Do you have uv installed? (Check with `uv --version`)
-5. **Tor**: Do you have Tor installed? (Check with `tor --version`)
+3. **uv**: Do you have uv installed? (Check with `uv --version`)
+4. **Tor**: Do you have Tor installed? (Check with `tor --version`)
 
 ## Step 2: Install Prerequisites
 
 Based on their OS, provide the appropriate commands:
 
-### Python & uv
+### uv
 
-**macOS:**
-```bash
-# Install uv (includes Python management)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Linux (Debian/Ubuntu):**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Linux (Fedora/RHEL):**
+**macOS / Linux:**
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
@@ -476,20 +476,33 @@ Extract and run tor.exe
 
 ```bash
 # Clone the repository
-git clone https://github.com/cpsenn/searchmcp.git
+git clone https://github.com/cspenn/searchmcp.git
 cd searchmcp
 
-# Install dependencies
-uv sync
+# Install as a tool -- adds `searchmcp` to your PATH
+uv tool install .
 ```
 
-Ask the user for the FULL PATH to the searchmcp directory. They can find it with:
-- macOS/Linux: `pwd` (while in the searchmcp directory)
-- Windows: `cd` (while in the searchmcp directory)
+Verify the install worked:
+```bash
+searchmcp --help
+```
 
 ## Step 4: Configure MCP Client
 
-Based on their MCP client, provide the configuration:
+Because `searchmcp` is on the user's PATH, the configuration is simple and identical across all clients:
+
+```json
+{
+  "mcpServers": {
+    "searchmcp": {
+      "command": "searchmcp"
+    }
+  }
+}
+```
+
+Based on their MCP client, show them where to put it:
 
 ### Claude Desktop
 
@@ -498,13 +511,12 @@ Based on their MCP client, provide the configuration:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
 
-**Configuration (replace /path/to/searchmcp with actual path):**
+**Configuration:**
 ```json
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -516,7 +528,7 @@ If they already have other MCP servers configured, help them merge the configura
 
 **Option 1: CLI command (recommended):**
 ```bash
-claude mcp add --transport stdio --scope user searchmcp -- uv run --directory /path/to/searchmcp python server.py
+claude mcp add --transport stdio --scope user searchmcp -- searchmcp
 ```
 
 **Option 2: Edit config file directly:**
@@ -527,8 +539,7 @@ Config file: `~/.claude.json`
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -550,8 +561,7 @@ Or add to `.vscode/mcp.json` in their workspace:
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -569,8 +579,7 @@ Add to the experimental MCP servers section:
       {
         "transport": {
           "type": "stdio",
-          "command": "uv",
-          "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+          "command": "searchmcp"
         }
       }
     ]
@@ -586,8 +595,7 @@ Add to the experimental MCP servers section:
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -606,14 +614,13 @@ Add to the experimental MCP servers section:
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
 ```
 
-LM Studio auto-reloads when you save mcp.json. Ensure `uv` is in your system PATH.
+LM Studio auto-reloads when you save mcp.json. Ensure `uv tool` bin directory is in your system PATH (uv prints this during install).
 
 ### AnythingLLM
 
@@ -629,8 +636,7 @@ The file is created automatically when you first visit the "Agent Skills" page i
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -644,7 +650,7 @@ You can manage MCP servers via the Agent Skills page without restarting the app.
 
 **Option 1: CLI command:**
 ```bash
-qwen mcp add searchmcp uv run --directory /path/to/searchmcp python server.py
+qwen mcp add searchmcp searchmcp
 ```
 
 **Option 2: Edit config file directly:**
@@ -658,8 +664,7 @@ qwen mcp add searchmcp uv run --directory /path/to/searchmcp python server.py
 {
   "mcpServers": {
     "searchmcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/searchmcp", "python", "server.py"]
+      "command": "searchmcp"
     }
   }
 }
@@ -671,9 +676,8 @@ qwen mcp add searchmcp uv run --directory /path/to/searchmcp python server.py
 
 ### Generic MCP Client
 
-For other clients, they need to configure an MCP server with:
-- **Command:** `uv`
-- **Arguments:** `["run", "--directory", "/path/to/searchmcp", "python", "server.py"]`
+For other clients, configure an MCP server with:
+- **Command:** `searchmcp`
 - **Transport:** stdio
 
 ## Step 5: Verify Installation
@@ -696,23 +700,24 @@ Tor service is not running. Start it:
 - Linux: `sudo systemctl start tor`
 - Windows: Run tor.exe
 
-### "Command not found: uv"
-Restart your terminal after installing uv, or run:
+### "Command not found: searchmcp"
+uv tool bin directory is not in PATH. Run:
 ```bash
-source ~/.bashrc  # or ~/.zshrc for zsh
+uv tool update-shell
 ```
+Then restart your terminal.
 
 ### MCP server not appearing
-1. Verify the path in the config is correct
-2. Ensure the JSON is valid (no trailing commas, proper quotes)
-3. Restart the MCP client completely
+1. Verify JSON is valid (no trailing commas, proper quotes)
+2. Restart the MCP client completely
+3. Run `searchmcp --help` in a terminal to confirm the command works
 
 ### Slow searches
 Normal - Tor adds latency for privacy. Searches may take 2-5 seconds longer than direct connections.
 
 ### LM Studio: MCP server not loading
 1. Check JSON syntax in mcp.json (use the in-app editor)
-2. Ensure `uv` is in your system PATH
+2. Ensure `searchmcp` is in your system PATH
 3. Try restarting LM Studio completely
 
 ### AnythingLLM: Tools not working
@@ -722,14 +727,13 @@ Normal - Tor adds latency for privacy. Searches may take 2-5 seconds longer than
 
 ### Claude Code: Server not connecting
 1. Run `/mcp` to check server status
-2. Verify the path is correct: `claude mcp get searchmcp`
-3. Remove and re-add: `claude mcp remove searchmcp` then add again
-4. Check that `uv` is in your PATH
+2. Remove and re-add: `claude mcp remove searchmcp` then add again
+3. Check `searchmcp --help` works in a terminal
 
 ### Qwen Code: Server not loading
 1. Run `qwen mcp list` to verify server is configured
 2. Check JSON syntax in settings.json
-3. Ensure `uv` is in your system PATH
+3. Ensure `searchmcp` is in your PATH
 
 ## Privacy Verification
 
@@ -748,7 +752,7 @@ If they see "Privacy Mode DISABLED", Tor is not configured correctly.
 
 ## License
 
-MIT License - See LICENSE file for details.
+Apache 2.0 License - See LICENSE file for details.
 
 ## Contributing
 
