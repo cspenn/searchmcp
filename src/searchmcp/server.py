@@ -1,6 +1,5 @@
 """Web Search MCP Server using FastMCP and DuckDuckGo."""
 
-import logging
 import os
 import socket
 import sys
@@ -9,15 +8,18 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-import requests
+import httpx
+import typer
 from ddgs import DDGS  # type: ignore[import-not-found]
+from ddgs.exceptions import DDGSException  # type: ignore[import-not-found]
 from fastmcp import FastMCP
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+from searchmcp.backends import validate_backend
+from searchmcp.logging_config import configure_logging, get_logger
+from searchmcp.params import SearchParams
+
+configure_logging()
+log = get_logger(__name__)
 
 _with_logging = False
 
@@ -42,7 +44,7 @@ def verify_tor_proxy(proxy: str) -> bool:
         sock.close()
         return result == 0
     except (OSError, ValueError) as e:
-        logger.debug("Tor proxy check failed: %s", e)
+        log.debug("tor_proxy_check_failed", error=str(e))
         return False
 
 
@@ -60,20 +62,17 @@ def verify_tor_exit(proxy: str, timeout: int) -> str:
         SystemExit: If Tor verification fails.
     """
     try:
-        response = requests.get(
-            "https://check.torproject.org/api/ip",
-            proxies={"http": proxy, "https": proxy},
-            timeout=timeout,
-        )
+        with httpx.Client(proxy=proxy, timeout=timeout) as client:
+            response = client.get("https://check.torproject.org/api/ip")
         data = response.json()
 
         if not data.get("IsTor", False):
-            logger.error("Traffic is NOT routing through Tor!")
+            log.error("tor_not_detected")
             sys.exit("ERROR: Tor verification failed - traffic not going through Tor")
 
         return data.get("IP", "unknown")
-    except requests.RequestException as e:
-        logger.error("Failed to verify Tor connection: %s", e)
+    except httpx.HTTPError as e:
+        log.error("tor_connection_failed", error=str(e))
         sys.exit(f"ERROR: Could not verify Tor connection: {e}")
 
 
@@ -81,16 +80,13 @@ def check_privileges() -> None:
     """Warn if running with elevated privileges."""
     if os.name != "nt":
         if os.getuid() == 0:
-            logger.warning("Running as root/admin is discouraged for security reasons")
+            log.warning("running_as_root")
     else:  # pyright: ignore[reportUnreachable]  # pragma: no cover
-        # Windows admin check
         with suppress(AttributeError, OSError):
             import ctypes
 
             if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
-                logger.warning(
-                    "Running as Administrator is discouraged for security reasons"
-                )
+                log.warning("running_as_admin")
 
 
 def print_privacy_status(proxy: str, exit_ip: str) -> None:
@@ -100,31 +96,31 @@ def print_privacy_status(proxy: str, exit_ip: str) -> None:
         proxy: Active Tor proxy URL
         exit_ip: Verified Tor exit node IP
     """
-    print()
-    print("=" * 60)
-    print("  SEARCHMCP - Privacy Mode ENABLED")
-    print("=" * 60)
-    print()
-    print("  Privacy Checklist:")
-    print(f"    [✓] Tor proxy: {proxy}")
-    print(f"    [✓] Tor verified: exit IP {exit_ip}")
-    print("    [✓] Query logging: DISABLED")
-    print()
-    print("  For Maximum Privacy, Also Use:")
-    print("    • VPN (layered with Tor for defense in depth)")
-    print("    • Privacy browser (Tor Browser, Brave, Firefox with")
-    print("      privacy extensions, or LibreWolf)")
-    print("    • Encrypted email (ProtonMail, Tutanota, or self-hosted)")
-    print("    • Encrypted messaging (Signal, Session, or Matrix)")
-    print("    • Privacy-respecting DNS (Quad9, Mullvad DNS, NextDNS)")
-    print()
-    print("  Threat Model Protection:")
-    print("    • ISP surveillance: PROTECTED (Tor encryption)")
-    print("    • Big Tech tracking: PROTECTED (no direct connection)")
-    print("    • Network observers: PROTECTED (Tor routing)")
-    print()
-    print("=" * 60)
-    print()
+    typer.echo("")
+    typer.echo("=" * 60)
+    typer.echo("  SEARCHMCP - Privacy Mode ENABLED")
+    typer.echo("=" * 60)
+    typer.echo("")
+    typer.echo("  Privacy Checklist:")
+    typer.echo(f"    [✓] Tor proxy: {proxy}")
+    typer.echo(f"    [✓] Tor verified: exit IP {exit_ip}")
+    typer.echo("    [✓] Query logging: DISABLED")
+    typer.echo("")
+    typer.echo("  For Maximum Privacy, Also Use:")
+    typer.echo("    • VPN (layered with Tor for defense in depth)")
+    typer.echo("    • Privacy browser (Tor Browser, Brave, Firefox with")
+    typer.echo("      privacy extensions, or LibreWolf)")
+    typer.echo("    • Encrypted email (ProtonMail, Tutanota, or self-hosted)")
+    typer.echo("    • Encrypted messaging (Signal, Session, or Matrix)")
+    typer.echo("    • Privacy-respecting DNS (Quad9, Mullvad DNS, NextDNS)")
+    typer.echo("")
+    typer.echo("  Threat Model Protection:")
+    typer.echo("    • ISP surveillance: PROTECTED (Tor encryption)")
+    typer.echo("    • Big Tech tracking: PROTECTED (no direct connection)")
+    typer.echo("    • Network observers: PROTECTED (Tor routing)")
+    typer.echo("")
+    typer.echo("=" * 60)
+    typer.echo("")
 
 
 class SearchError(Exception):
@@ -144,7 +140,9 @@ class TorConfig:
         """Load Tor configuration from environment variables.
 
         Environment Variables:
-            SEARCHMCP_USE_TOR: Enable Tor routing (true/false/1/0/yes/no)
+            SEARCHMCP_USE_TOR: Enable Tor routing; Tor is enabled when the value (compared
+                case-insensitively) is NOT in {'false', '0', 'no'}. Any other value,
+                including an unset variable (default 'true'), enables Tor.
             SEARCHMCP_TOR_PROXY: Tor SOCKS proxy URL (default: socks5h://127.0.0.1:9050)
             SEARCHMCP_TOR_TIMEOUT: Request timeout in seconds (default: 30)
 
@@ -164,12 +162,9 @@ class TorConfig:
 _tor_config = TorConfig.from_environment()
 
 if _tor_config.enabled:
-    logger.info(
-        "Tor privacy mode ENABLED - all searches will route through %s",
-        _tor_config.proxy,
-    )
+    log.info("tor_enabled", proxy=_tor_config.proxy)
 else:  # pragma: no cover
-    logger.info("Tor privacy mode disabled - searches will use direct connection")
+    log.info("tor_disabled")
 
 
 _ddgs_client: Any = None
@@ -185,7 +180,7 @@ def configure(*, with_logging: bool, tor_config: TorConfig | None = None) -> Tor
     _with_logging = with_logging
     if tor_config is not None:
         _tor_config = tor_config
-    _ddgs_client = None  # invalidate cached client so new config takes effect
+    _ddgs_client = None
     return _tor_config
 
 
@@ -204,42 +199,77 @@ def _get_ddgs_client() -> Any:
     return _ddgs_client
 
 
-def _validate_search_params(
-    query: str,
-    max_results: int,
-    safe_search: Literal["off", "moderate", "strict"] | None = None,
-) -> None:
-    """Validate common search parameters.
+def _validate_query(query: str) -> None:
+    """Raise ValueError if query is blank.
 
     Args:
-        query: The search query string.
-        max_results: Maximum number of results.
-        safe_search: Safety filter value (optional).
+        query: The search query to validate.
 
     Raises:
-        ValueError: If any parameter is invalid.
+        ValueError: If query is empty or whitespace only.
     """
     if not query.strip():
         raise ValueError("Query cannot be empty")
-    if not 1 <= max_results <= 100:
-        raise ValueError("max_results must be between 1 and 100")
-    if safe_search is not None and safe_search not in ("off", "moderate", "strict"):
-        raise ValueError("safe_search must be 'off', 'moderate', or 'strict'")
+
+
+def _do_search(
+    category: Literal["text", "news", "images", "videos", "books"],
+    query: str,
+    params: SearchParams | None = None,
+) -> list[dict[str, Any]]:
+    """Execute a search against the given DDGS category.
+
+    Args:
+        category: DDGS method name (text/news/images/videos/books).
+        query: The search query string.
+        params: Search parameters; defaults to SearchParams() if None.
+
+    Returns:
+        List of result dicts.
+
+    Raises:
+        ValueError: If query is empty or backend is invalid for the category.
+        SearchError: If the DDGS search operation fails.
+    """
+    if params is None:
+        params = SearchParams()
+    _validate_query(query)
+    validate_backend(category, params.backend)
+    try:
+        if _with_logging:
+            log.info(f"{category}_search_started", query=query)
+        else:
+            log.info(f"{category}_search_performed")
+        client = _get_ddgs_client()
+        results: list[dict[str, Any]] = getattr(client, category)(
+            query,
+            max_results=params.max_results,
+            region=params.region,
+            safesearch=params.safesearch,
+            timelimit=params.timelimit,
+            backend=params.backend,
+            page=params.page,
+        )
+        log.info(f"{category}_search_completed", count=len(results))
+        return results
+    except ValueError:
+        raise
+    except DDGSException as e:
+        log.error(f"{category}_search_failed", error=str(e))
+        raise SearchError(f"{category} search failed: {e}") from e
+    except Exception as e:
+        log.error(f"{category}_search_failed", error=str(e))
+        raise SearchError(f"{category} search failed: {e}") from e
 
 
 def do_web_search(
-    query: str,
-    max_results: int = 10,
-    region: str = "wt-wt",
-    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    query: str, params: SearchParams | None = None
 ) -> list[dict[str, Any]]:
     """Execute web search using DuckDuckGo.
 
     Args:
         query: The search query string.
-        max_results: Maximum number of results (1-100).
-        region: Region code (wt-wt = worldwide).
-        safe_search: Safety filter (off/moderate/strict).
+        params: Search parameters (max_results, region, safesearch, timelimit, backend, page).
 
     Returns:
         List of results with title, href, and body fields.
@@ -248,107 +278,95 @@ def do_web_search(
         ValueError: If parameters are invalid.
         SearchError: If the search operation fails.
     """
-    _validate_search_params(query, max_results, safe_search)
-    try:
-        if _with_logging:
-            logger.info("Web search: %s", query)
-        else:
-            logger.info("Web search performed (query content hidden for privacy)")
-        client = _get_ddgs_client()
-        results = client.text(
-            query, max_results=max_results, region=region, safesearch=safe_search
-        )
-        logger.info("Web search returned %d results", len(results))
-        return results
-    except ValueError:
-        raise
-    except Exception as e:
-        logger.error("Web search failed: %s", e)
-        raise SearchError(f"Web search failed: {e}") from e
+    return _do_search("text", query, params)
 
 
 def do_image_search(
-    query: str,
-    max_results: int = 10,
-    region: str = "wt-wt",
-    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    query: str, params: SearchParams | None = None
 ) -> list[dict[str, Any]]:
     """Execute image search using DuckDuckGo.
 
     Args:
         query: The search query string.
-        max_results: Maximum number of results (1-100).
-        region: Region code (wt-wt = worldwide).
-        safe_search: Safety filter (off/moderate/strict).
+        params: Search parameters (max_results, region, safesearch, timelimit, backend, page).
 
     Returns:
-        List of results with title, image, thumbnail, url, and source fields.
+        List of results with title, image, thumbnail, url, height, width, and source fields.
 
     Raises:
         ValueError: If parameters are invalid.
         SearchError: If the search operation fails.
     """
-    _validate_search_params(query, max_results, safe_search)
-    try:
-        if _with_logging:
-            logger.info("Image search: %s", query)
-        else:
-            logger.info("Image search performed (query content hidden for privacy)")
-        client = _get_ddgs_client()
-        results = client.images(
-            query, max_results=max_results, region=region, safesearch=safe_search
-        )
-        logger.info("Image search returned %d results", len(results))
-        return results
-    except ValueError:
-        raise
-    except Exception as e:
-        logger.error("Image search failed: %s", e)
-        raise SearchError(f"Image search failed: {e}") from e
+    return _do_search("images", query, params)
 
 
 def do_news_search(
-    query: str,
-    max_results: int = 10,
-    region: str = "wt-wt",
+    query: str, params: SearchParams | None = None
 ) -> list[dict[str, Any]]:
     """Execute news search using DuckDuckGo.
 
     Args:
         query: The search query string.
-        max_results: Maximum number of results (1-100).
-        region: Region code (wt-wt = worldwide).
+        params: Search parameters (max_results, region, safesearch, timelimit, backend, page).
 
     Returns:
-        List of results with title, url, body, date, and source fields.
+        List of results with title, url, body, date, image, and source fields.
 
     Raises:
         ValueError: If parameters are invalid.
         SearchError: If the search operation fails.
     """
-    _validate_search_params(query, max_results)
-    try:
-        if _with_logging:
-            logger.info("News search: %s", query)
-        else:
-            logger.info("News search performed (query content hidden for privacy)")
-        client = _get_ddgs_client()
-        results = client.news(query, max_results=max_results, region=region)
-        logger.info("News search returned %d results", len(results))
-        return results
-    except ValueError:
-        raise
-    except Exception as e:
-        logger.error("News search failed: %s", e)
-        raise SearchError(f"News search failed: {e}") from e
+    return _do_search("news", query, params)
+
+
+def do_videos_search(
+    query: str, params: SearchParams | None = None
+) -> list[dict[str, Any]]:
+    """Execute video search using DuckDuckGo.
+
+    Args:
+        query: The search query string.
+        params: Search parameters (max_results, region, safesearch, timelimit, backend, page).
+
+    Returns:
+        List of results with title, content, description, duration, embed_html, embed_url,
+        image_token, images, provider, published, publisher, statistics, and uploader fields.
+
+    Raises:
+        ValueError: If parameters are invalid.
+        SearchError: If the search operation fails.
+    """
+    return _do_search("videos", query, params)
+
+
+def do_books_search(
+    query: str, params: SearchParams | None = None
+) -> list[dict[str, Any]]:
+    """Execute book search using DuckDuckGo.
+
+    Args:
+        query: The search query string.
+        params: Search parameters (max_results, region, safesearch, timelimit, backend, page).
+
+    Returns:
+        List of results with title, author, publisher, info, url, and thumbnail fields.
+
+    Raises:
+        ValueError: If parameters are invalid.
+        SearchError: If the search operation fails.
+    """
+    return _do_search("books", query, params)
 
 
 @mcp.tool
-def web_search(
+def web_search(  # noqa: PLR0913
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
     safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """Search the web using DuckDuckGo.
 
@@ -357,19 +375,33 @@ def web_search(
         max_results: Maximum number of results (1-100).
         region: Region code (wt-wt = worldwide).
         safe_search: Safety filter (off/moderate/strict).
+        timelimit: Time limit (d=day, w=week, m=month, y=year).
+        backend: Search engine backend(s); single name, comma-separated, or auto/all.
+        page: Result page number (1-100).
 
     Returns:
         List of results with title, href, and body fields.
     """
-    return do_web_search(query, max_results, region, safe_search)
+    params = SearchParams(
+        max_results=max_results,
+        region=region,
+        safesearch=safe_search,
+        timelimit=timelimit,
+        backend=backend,
+        page=page,
+    )
+    return do_web_search(query, params)
 
 
 @mcp.tool
-def image_search(
+def image_search(  # noqa: PLR0913
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
     safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """Search for images using DuckDuckGo.
 
@@ -378,18 +410,33 @@ def image_search(
         max_results: Maximum number of results (1-100).
         region: Region code (wt-wt = worldwide).
         safe_search: Safety filter (off/moderate/strict).
+        timelimit: Time limit (d=day, w=week, m=month, y=year).
+        backend: Search engine backend(s); single name, comma-separated, or auto/all.
+        page: Result page number (1-100).
 
     Returns:
-        List of results with title, image, thumbnail, url, and source fields.
+        List of results with title, image, thumbnail, url, height, width, and source fields.
     """
-    return do_image_search(query, max_results, region, safe_search)
+    params = SearchParams(
+        max_results=max_results,
+        region=region,
+        safesearch=safe_search,
+        timelimit=timelimit,
+        backend=backend,
+        page=page,
+    )
+    return do_image_search(query, params)
 
 
 @mcp.tool
-def news_search(
+def news_search(  # noqa: PLR0913
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """Search for news articles using DuckDuckGo.
 
@@ -397,8 +444,91 @@ def news_search(
         query: The search query string.
         max_results: Maximum number of results (1-100).
         region: Region code (wt-wt = worldwide).
+        safe_search: Safety filter (off/moderate/strict).
+        timelimit: Time limit (d=day, w=week, m=month, y=year).
+        backend: Search engine backend(s); single name, comma-separated, or auto/all.
+        page: Result page number (1-100).
 
     Returns:
-        List of results with title, url, body, date, and source fields.
+        List of results with title, url, body, date, image, and source fields.
     """
-    return do_news_search(query, max_results, region)
+    params = SearchParams(
+        max_results=max_results,
+        region=region,
+        safesearch=safe_search,
+        timelimit=timelimit,
+        backend=backend,
+        page=page,
+    )
+    return do_news_search(query, params)
+
+
+@mcp.tool
+def videos_search(  # noqa: PLR0913
+    query: str,
+    max_results: int = 10,
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
+) -> list[dict[str, Any]]:
+    """Search for videos using DuckDuckGo.
+
+    Args:
+        query: The search query string.
+        max_results: Maximum number of results (1-100).
+        region: Region code (wt-wt = worldwide).
+        safe_search: Safety filter (off/moderate/strict).
+        timelimit: Time limit (d=day, w=week, m=month, y=year).
+        backend: Search engine backend(s); single name, comma-separated, or auto/all.
+        page: Result page number (1-100).
+
+    Returns:
+        List of results with title, content, description, duration, embed_html, embed_url,
+        image_token, images, provider, published, publisher, statistics, and uploader fields.
+    """
+    params = SearchParams(
+        max_results=max_results,
+        region=region,
+        safesearch=safe_search,
+        timelimit=timelimit,
+        backend=backend,
+        page=page,
+    )
+    return do_videos_search(query, params)
+
+
+@mcp.tool
+def books_search(  # noqa: PLR0913
+    query: str,
+    max_results: int = 10,
+    region: str = "wt-wt",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
+    timelimit: Literal["d", "w", "m", "y"] | None = None,
+    backend: str = "auto",
+    page: int = 1,
+) -> list[dict[str, Any]]:
+    """Search for books using DuckDuckGo.
+
+    Args:
+        query: The search query string.
+        max_results: Maximum number of results (1-100).
+        region: Region code (wt-wt = worldwide).
+        safe_search: Safety filter (off/moderate/strict).
+        timelimit: Time limit (d=day, w=week, m=month, y=year).
+        backend: Search engine backend(s); single name, comma-separated, or auto/all.
+        page: Result page number (1-100).
+
+    Returns:
+        List of results with title, author, publisher, info, url, and thumbnail fields.
+    """
+    params = SearchParams(
+        max_results=max_results,
+        region=region,
+        safesearch=safe_search,
+        timelimit=timelimit,
+        backend=backend,
+        page=page,
+    )
+    return do_books_search(query, params)
