@@ -1,10 +1,10 @@
-# start src/searchmcp/main.py
 """Entry point orchestrator for searchmcp."""
 
 import argparse
 import logging
 import sys
 
+import searchmcp.server as _server
 from searchmcp.server import (
     TorConfig,
     check_privileges,
@@ -82,23 +82,26 @@ def startup_privacy_check(args: argparse.Namespace, config: TorConfig) -> None:
 
 def main() -> None:
     """Main entry point with privacy checks."""
-    import searchmcp.server as _server
-
     args = parse_args()
 
-    _server._with_logging = args.with_logging
-
-    if args.disable_privacy:
-        _server._tor_config = TorConfig(
+    disabled_config = (
+        TorConfig(
             enabled=False,
             proxy=_server._tor_config.proxy,
             timeout=_server._tor_config.timeout,
         )
+        if args.disable_privacy
+        else None
+    )
 
-    startup_privacy_check(args, _server._tor_config)
+    active_config = _server.configure(
+        with_logging=args.with_logging,
+        tor_config=disabled_config,
+    )
+
+    startup_privacy_check(args, active_config)
     _server.mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover
     main()
-# end src/searchmcp/main.py

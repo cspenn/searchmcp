@@ -1,4 +1,3 @@
-# start src/searchmcp/server.py
 """Web Search MCP Server using FastMCP and DuckDuckGo."""
 
 import logging
@@ -7,21 +6,19 @@ import socket
 import sys
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import requests
 from ddgs import DDGS  # type: ignore[import-not-found]
 from fastmcp import FastMCP
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Module-level flag for query logging (set by CLI args)
 _with_logging = False
 
 
@@ -154,7 +151,6 @@ class TorConfig:
         Returns:
             TorConfig instance with settings from environment.
         """
-        # Privacy by default: Tor is enabled unless explicitly disabled
         enabled = os.getenv("SEARCHMCP_USE_TOR", "true").lower() not in (
             "false",
             "0",
@@ -165,10 +161,8 @@ class TorConfig:
         return cls(enabled=enabled, proxy=proxy, timeout=timeout)
 
 
-# Module-level configuration (loaded once at startup)
 _tor_config = TorConfig.from_environment()
 
-# Log Tor status at module load
 if _tor_config.enabled:
     logger.info(
         "Tor privacy mode ENABLED - all searches will route through %s",
@@ -178,24 +172,42 @@ else:  # pragma: no cover
     logger.info("Tor privacy mode disabled - searches will use direct connection")
 
 
+_ddgs_client: Any = None
+
+
+def configure(*, with_logging: bool, tor_config: TorConfig | None = None) -> TorConfig:
+    """Apply CLI/runtime configuration. Call once before mcp.run().
+
+    Returns:
+        The active TorConfig after applying changes.
+    """
+    global _with_logging, _tor_config, _ddgs_client
+    _with_logging = with_logging
+    if tor_config is not None:
+        _tor_config = tor_config
+    _ddgs_client = None  # invalidate cached client so new config takes effect
+    return _tor_config
+
+
 mcp = FastMCP("Web Search")
 
 
 def _get_ddgs_client() -> Any:
-    """Create a DDGS client with optional Tor proxy.
-
-    Returns:
-        DDGS client configured based on Tor settings.
-    """
-    if _tor_config.enabled:
-        return DDGS(proxy=_tor_config.proxy, timeout=_tor_config.timeout)
-    return DDGS()
+    """Return the module-level DDGS singleton, creating it on first call."""
+    global _ddgs_client
+    if _ddgs_client is None:
+        _ddgs_client = (
+            DDGS(proxy=_tor_config.proxy, timeout=_tor_config.timeout)
+            if _tor_config.enabled
+            else DDGS()
+        )
+    return _ddgs_client
 
 
 def _validate_search_params(
     query: str,
     max_results: int,
-    safe_search: str | None = None,
+    safe_search: Literal["off", "moderate", "strict"] | None = None,
 ) -> None:
     """Validate common search parameters.
 
@@ -219,7 +231,7 @@ def do_web_search(
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
-    safe_search: str = "moderate",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
 ) -> list[dict[str, Any]]:
     """Execute web search using DuckDuckGo.
 
@@ -259,7 +271,7 @@ def do_image_search(
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
-    safe_search: str = "moderate",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
 ) -> list[dict[str, Any]]:
     """Execute image search using DuckDuckGo.
 
@@ -336,7 +348,7 @@ def web_search(
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
-    safe_search: str = "moderate",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
 ) -> list[dict[str, Any]]:
     """Search the web using DuckDuckGo.
 
@@ -357,7 +369,7 @@ def image_search(
     query: str,
     max_results: int = 10,
     region: str = "wt-wt",
-    safe_search: str = "moderate",
+    safe_search: Literal["off", "moderate", "strict"] = "moderate",
 ) -> list[dict[str, Any]]:
     """Search for images using DuckDuckGo.
 
@@ -390,6 +402,3 @@ def news_search(
         List of results with title, url, body, date, and source fields.
     """
     return do_news_search(query, max_results, region)
-
-
-# end src/searchmcp/server.py

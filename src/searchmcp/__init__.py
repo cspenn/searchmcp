@@ -1,4 +1,3 @@
-# start src/searchmcp/__init__.py
 """searchmcp - Privacy-first web search MCP server."""
 
 from searchmcp.server import (
@@ -24,4 +23,3 @@ __all__ = [
     "do_image_search",
     "do_news_search",
 ]
-# end src/searchmcp/__init__.py
